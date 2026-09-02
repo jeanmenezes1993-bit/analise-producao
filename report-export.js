@@ -37,6 +37,11 @@
   var PRINT_STYLE_ID = "vx-export-report-print-style";
   var PRINT_TARGET_CLASS = "vx-print-target";
   var BRAND_TEAL = "#16C2C2";
+  // Aproximação em pixels (96dpi) da área útil de uma página A4 com
+  // margem de 18mm (ver @page no CSS de impressão) — usada só pra
+  // medir se o relatório monta cabe numa página só antes de imprimir.
+  var PAGE_CONTENT_WIDTH_PX = 658;
+  var PAGE_CONTENT_HEIGHT_PX = 987;
   var PAINEL_TITLE = "Painel de Produção";
 
   // Cartões de indicador que entram no relatório. "search" é o texto
@@ -319,7 +324,13 @@
     var root = document.createElement("div");
     root.id = REPORT_ROOT_ID;
     root.className = PRINT_TARGET_CLASS;
-    root.style.display = "none"; // só aparece via @media print
+    // Fica fora da tela (não usa display:none) pra que dê pra medir a
+    // altura real do conteúdo antes de imprimir — ver fitToOnePage().
+    // O CSS de impressão sobrescreve tudo isso na hora de imprimir.
+    root.style.position = "fixed";
+    root.style.left = "-99999px";
+    root.style.top = "0";
+    root.style.width = PAGE_CONTENT_WIDTH_PX + "px";
 
     var header = document.createElement("div");
     header.className = "vx-print-header";
@@ -418,6 +429,19 @@
     return root;
   }
 
+  // Mede a altura real do relatório montado e, se passar da área útil
+  // de uma página, encolhe tudo (texto incluso) proporcionalmente até
+  // caber — assim o PDF sempre sai numa página só.
+  function fitToOnePage(root) {
+    root.style.transform = "";
+    var contentHeight = root.scrollHeight;
+    if (contentHeight > PAGE_CONTENT_HEIGHT_PX) {
+      var scale = PAGE_CONTENT_HEIGHT_PX / contentHeight;
+      root.style.transformOrigin = "top left";
+      root.style.transform = "scale(" + scale.toFixed(4) + ")";
+    }
+  }
+
   function runExport(selectedCardIds) {
     ensurePrintStyle();
 
@@ -427,6 +451,7 @@
 
     var root = buildReportRoot(selectedCardIds, periodo, dataSel, geradoEm);
     document.body.appendChild(root);
+    fitToOnePage(root);
 
     var originalTitle = document.title;
     var fileDate = dataSel || new Date().toISOString().slice(0, 10);
