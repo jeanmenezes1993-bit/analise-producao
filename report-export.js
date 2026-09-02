@@ -4,12 +4,19 @@
  * Botão "Exportar Relatório" injetado na tela Painel (dashboard) do
  * sistema. Este arquivo é aditivo: não altera nem depende de detalhes
  * internos do bundle gerado em app.js. Ele apenas observa o DOM já
- * renderizado, adiciona um botão flutuante e, ao clicar, captura o
- * conteúdo visível do painel (respeitando o filtro Dia/Semana/Mês/Ano e
- * a data selecionados no momento) e gera um PDF para download.
+ * renderizado, adiciona um botão flutuante e, ao clicar, aciona a
+ * impressão nativa do navegador (respeitando o filtro Dia/Semana/Mês/
+ * Ano e a data selecionados no momento), escondendo o menu lateral e o
+ * próprio botão via CSS de impressão — o usuário escolhe "Salvar como
+ * PDF" no diálogo de impressão do navegador.
  *
- * Dependências (carregadas via <script defer> no index.html, antes
- * deste arquivo): html2canvas e jsPDF (window.jspdf).
+ * Por que impressão nativa em vez de "print da tela" + canvas/imagem:
+ * a abordagem anterior (html2canvas + jsPDF fatiando uma captura em
+ * imagem) se mostrou frágil — ou cortava o conteúdo, ou espalhava tudo
+ * em dezenas de páginas minúsculas e ilegíveis. A impressão nativa usa
+ * texto real (vetorial), então fica nítido em qualquer zoom, e a
+ * paginação é feita pelo próprio motor do navegador — muito mais
+ * confiável.
  *
  * Mantido separado de app.js de propósito: app.js é um build minificado
  * sem código-fonte versionado, então qualquer lógica nova deve viver
@@ -20,6 +27,9 @@
   "use strict";
 
   var BUTTON_ID = "vx-export-report-btn";
+  var PRINT_STYLE_ID = "vx-export-report-print-style";
+  var PRINT_TARGET_CLASS = "vx-print-target";
+  var PRINT_HEADER_CLASS = "vx-print-header";
   var BRAND_TEAL = "#16C2C2";
   var PAINEL_TITLE = "Painel de Produção";
 
@@ -101,32 +111,11 @@
     return main || document.body;
   }
 
-  // Rede de segurança: independentemente de como o container foi
-  // escolhido, se ele for baixo demais para conter cards + gráfico +
-  // tabela (sintoma exato do bug anterior: só o cabeçalho saía no
-  // PDF), sobe mais alguns níveis até achar algo de altura plausível.
-  function ensureTallEnough(el) {
-    var MIN_HEIGHT = 500;
-    var guard = 0;
-    while (el && el.parentElement && guard < 10) {
-      var h = Math.max(
-        el.getBoundingClientRect().height,
-        el.scrollHeight || 0
-      );
-      if (h >= MIN_HEIGHT) return el;
-      el = el.parentElement;
-      guard++;
-    }
-    return el || document.body;
-  }
-
   // Estratégia principal: usar o ancestral comum entre o título do
   // painel e alguma outra seção conhecida da tela (tenta várias, da
   // mais específica/profunda para a mais genérica). Isso garante que
-  // cards, gráficos e tabela — tudo que fica entre os dois — entre na
-  // captura, em vez de parar cedo demais num wrapper estreito só do
-  // cabeçalho. Por fim, ensureTallEnough() corrige o resultado caso a
-  // busca por texto não tenha achado nada útil.
+  // cards, gráficos e tabela — tudo que fica entre os dois — fique
+  // dentro do container escolhido para impressão.
   function getReportContainer(heading) {
     var candidateLandmarks = [
       "Desempenho por Colaborador",
@@ -151,7 +140,7 @@
       container = getContainerByWidthHeuristic(heading);
     }
 
-    return ensureTallEnough(container);
+    return container;
   }
 
   function getActivePeriodLabel() {
@@ -183,24 +172,75 @@
   }
 
   // ---------------------------------------------------------------------
-  // Geração do PDF
+  // Impressão / exportação em PDF
   // ---------------------------------------------------------------------
 
-  function loadLibsReady() {
-    return typeof window.html2canvas === "function" &&
-      window.jspdf && typeof window.jspdf.jsPDF === "function";
+  function ensurePrintStyle() {
+    if (document.getElementById(PRINT_STYLE_ID)) return;
+    var style = document.createElement("style");
+    style.id = PRINT_STYLE_ID;
+    style.textContent =
+      "@media print {" +
+      "  body * { visibility: hidden !important; }" +
+      "  ." + PRINT_TARGET_CLASS + "," +
+      "  ." + PRINT_TARGET_CLASS + " * { visibility: visible !important; }" +
+      "  #" + BUTTON_ID + " { display: none !important; }" +
+      "  ." + PRINT_TARGET_CLASS + " {" +
+      "    position: absolute !important;" +
+      "    left: 0 !important;" +
+      "    top: 0 !important;" +
+      "    width: 100% !important;" +
+      "    max-width: 100% !important;" +
+      "    height: auto !important;" +
+      "    max-height: none !important;" +
+      "    overflow: visible !important;" +
+      "    margin: 0 !important;" +
+      "    background: #fff !important;" +
+      "    box-shadow: none !important;" +
+      "    font-size: 13pt !important;" +
+      "  }" +
+      "  ." + PRINT_TARGET_CLASS + " * {" +
+      "    overflow: visible !important;" +
+      "    box-shadow: none !important;" +
+      "  }" +
+      "  ." + PRINT_HEADER_CLASS + " {" +
+      "    display: block !important;" +
+      "    margin: 0 0 16pt 0 !important;" +
+      "    font-family: 'Inter', system-ui, sans-serif !important;" +
+      "  }" +
+      "  ." + PRINT_HEADER_CLASS + " h1 {" +
+      "    font-size: 18pt !important;" +
+      "    margin: 0 0 4pt 0 !important;" +
+      "  }" +
+      "  ." + PRINT_HEADER_CLASS + " p {" +
+      "    font-size: 11pt !important;" +
+      "    color: #444 !important;" +
+      "    margin: 2pt 0 !important;" +
+      "  }" +
+      "  @page { margin: 16mm; }" +
+      "}";
+    document.head.appendChild(style);
   }
 
-  async function exportReport() {
+  function buildPrintHeader(periodo, dataSel, geradoEm) {
+    var header = document.createElement("div");
+    header.className = PRINT_HEADER_CLASS;
+    header.style.display = "none"; // só aparece via @media print
+    header.innerHTML =
+      "<h1>Relatório de Produção</h1>" +
+      "<p>Período: " +
+      periodo +
+      (dataSel ? " &nbsp;•&nbsp; Data de referência: " + dataSel : "") +
+      "</p>" +
+      "<p>Gerado em: " +
+      geradoEm +
+      "</p>";
+    return header;
+  }
+
+  function exportReport() {
     var btn = document.getElementById(BUTTON_ID);
     if (!btn) return;
-
-    if (!loadLibsReady()) {
-      alert(
-        "As bibliotecas de exportação ainda estão carregando. Aguarde alguns segundos e tente novamente."
-      );
-      return;
-    }
 
     var heading = findPainelHeading();
     var container = getReportContainer(heading);
@@ -209,100 +249,35 @@
       return;
     }
 
-    var originalLabel = btn.innerHTML;
-    btn.disabled = true;
-    btn.style.cursor = "wait";
-    btn.innerHTML = "Gerando PDF...";
+    ensurePrintStyle();
 
-    try {
-      var canvas = await window.html2canvas(container, {
-        backgroundColor: "#f4f7f8",
-        scale: Math.min(2, window.devicePixelRatio || 1.5),
-        useCORS: true,
-        ignoreElements: function (el) {
-          return el.id === BUTTON_ID;
-        }
-      });
+    var periodo = getActivePeriodLabel() || "-";
+    var dataSel = getSelectedDate();
+    var geradoEm = new Date().toLocaleString("pt-BR");
+    var header = buildPrintHeader(periodo, dataSel, geradoEm);
 
-      var jsPDF = window.jspdf.jsPDF;
-      var pdf = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
-      var pageWidth = pdf.internal.pageSize.getWidth();
-      var pageHeight = pdf.internal.pageSize.getHeight();
-      var margin = 24;
-      var usableWidth = pageWidth - margin * 2;
+    var originalTitle = document.title;
+    var fileDate = dataSel || new Date().toISOString().slice(0, 10);
+    var fileSafePeriodo = periodo.toLowerCase().replace(/[^a-z0-9]/gi, "");
+    document.title = "relatorio-producao-" + fileSafePeriodo + "-" + fileDate;
 
-      var periodo = getActivePeriodLabel() || "-";
-      var dataSel = getSelectedDate();
-      var geradoEm = new Date().toLocaleString("pt-BR");
+    container.classList.add(PRINT_TARGET_CLASS);
+    container.insertBefore(header, container.firstChild);
 
-      pdf.setFontSize(14);
-      pdf.setTextColor(20, 20, 20);
-      pdf.text("Relatório de Produção", margin, margin + 6);
-      pdf.setFontSize(9);
-      pdf.setTextColor(90, 90, 90);
-      pdf.text(
-        "Período: " + periodo + (dataSel ? "  •  Data de referência: " + dataSel : ""),
-        margin,
-        margin + 22
-      );
-      pdf.text("Gerado em: " + geradoEm, margin, margin + 34);
-
-      var cursorY = margin + 46;
-      var imgWidth = usableWidth;
-      var imgHeight = (canvas.height * imgWidth) / canvas.width;
-      var scalePxPerPt = canvas.width / imgWidth;
-
-      var remainingHeight = imgHeight;
-      var sourceY = 0;
-      var pageUsableHeight = pageHeight - margin * 2;
-      var firstPage = true;
-
-      while (remainingHeight > 0.5) {
-        var availableHeight = firstPage
-          ? pageHeight - cursorY - margin
-          : pageUsableHeight;
-        var sliceHeightPt = Math.min(availableHeight, remainingHeight);
-        var sliceHeightPx = sliceHeightPt * scalePxPerPt;
-
-        var sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = sliceHeightPx;
-        var ctx = sliceCanvas.getContext("2d");
-        ctx.drawImage(
-          canvas,
-          0, sourceY, canvas.width, sliceHeightPx,
-          0, 0, canvas.width, sliceHeightPx
-        );
-
-        pdf.addImage(
-          sliceCanvas.toDataURL("image/png"),
-          "PNG",
-          margin,
-          firstPage ? cursorY : margin,
-          imgWidth,
-          sliceHeightPt
-        );
-
-        remainingHeight -= sliceHeightPt;
-        sourceY += sliceHeightPx;
-        firstPage = false;
-
-        if (remainingHeight > 0.5) pdf.addPage();
-      }
-
-      var fileDate = dataSel || new Date().toISOString().slice(0, 10);
-      var fileSafePeriodo = periodo.toLowerCase().replace(/[^a-z0-9]/gi, "");
-      pdf.save("relatorio-producao-" + fileSafePeriodo + "-" + fileDate + ".pdf");
-    } catch (err) {
-      console.error("[report-export] falha ao gerar PDF:", err);
-      alert(
-        "Não foi possível gerar o relatório em PDF. Abra o console (F12) para ver o erro técnico."
-      );
-    } finally {
-      btn.disabled = false;
-      btn.style.cursor = "pointer";
-      btn.innerHTML = originalLabel;
+    function cleanup() {
+      container.classList.remove(PRINT_TARGET_CLASS);
+      if (header.parentNode) header.parentNode.removeChild(header);
+      document.title = originalTitle;
+      window.removeEventListener("afterprint", cleanup);
     }
+
+    window.addEventListener("afterprint", cleanup);
+    // Segurança: caso o navegador não dispare "afterprint" (alguns
+    // fluxos de "cancelar" no diálogo não disparam em certos
+    // navegadores), desfaz de qualquer forma depois de um tempo.
+    setTimeout(cleanup, 60000);
+
+    window.print();
   }
 
   // ---------------------------------------------------------------------
@@ -314,7 +289,8 @@
     btn.id = BUTTON_ID;
     btn.type = "button";
     btn.innerHTML = "&#8681;&nbsp; Exportar Relatório";
-    btn.title = "Exportar o painel atual (respeitando o filtro selecionado) em PDF";
+    btn.title =
+      "Exportar o painel atual (respeitando o filtro selecionado) em PDF — escolha \"Salvar como PDF\" na janela de impressão";
 
     var style = btn.style;
     style.position = "fixed";
@@ -334,7 +310,7 @@
     style.transition = "filter 0.15s ease, transform 0.15s ease";
 
     btn.addEventListener("mouseenter", function () {
-      if (!btn.disabled) style.filter = "brightness(1.08)";
+      style.filter = "brightness(1.08)";
     });
     btn.addEventListener("mouseleave", function () {
       style.filter = "none";
