@@ -414,17 +414,37 @@
 
     // Esconde (só na impressão) os cartões que o usuário desmarcou.
     var hiddenEls = [];
+    var diagLines = [];
     CARD_SECTIONS.forEach(function (section) {
       if (selectedCardIds.indexOf(section.id) !== -1) return;
       var el = resolveCardElement(section.search);
       if (el) {
         el.classList.add(PRINT_HIDE_CLASS);
         hiddenEls.push(el);
+        var rect = el.getBoundingClientRect();
+        var line =
+          "✓ " + section.label + " → escondido (" +
+          el.tagName.toLowerCase() +
+          (el.className && typeof el.className === "string" ? "." + el.className.split(" ").join(".") : "") +
+          ", " + Math.round(rect.width) + "x" + Math.round(rect.height) + "px)";
+        diagLines.push(line);
         console.debug("[report-export] escondendo cartão:", section.label, el);
       } else {
+        diagLines.push("✗ " + section.label + " → NÃO ACHADO na tela");
         console.warn("[report-export] não achei o cartão para esconder:", section.label);
       }
     });
+
+    // Diagnóstico temporário: mostra na tela (sem precisar abrir o
+    // console) exatamente o que o script encontrou, pra investigar por
+    // que cartões desmarcados continuam saindo no PDF.
+    if (window.__vxExportDebug !== false) {
+      alert(
+        "[Diagnóstico Exportar Relatório]\n\n" +
+          (diagLines.length ? diagLines.join("\n") : "(nenhum cartão desmarcado)") +
+          "\n\nClique OK para continuar para a impressão."
+      );
+    }
 
     // Esconde dropdowns/filtros que "flutuam" fora do lugar na
     // impressão, e evita que cartões sejam cortados ao virar página.
