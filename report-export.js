@@ -37,17 +37,35 @@
     return null;
   }
 
-  // Acha um elemento "folha" (sem filhos) cujo texto bate exatamente
-  // com o procurado. Usado para localizar marcos fixos do layout
-  // (títulos de seção) sem depender de classes internas do bundle.
-  function findElementByExactText(text) {
-    var all = document.querySelectorAll("h1, h2, h3, h4, div, span, p");
+  // Acha um elemento cujo texto bate com o procurado, ignorando
+  // maiúsculas/minúsculas (rótulos de seção costumam ser exibidos em
+  // caixa alta só por CSS text-transform, com o texto real em
+  // minúsculas no DOM) e espaços extras. Prioriza o elemento mais
+  // específico (sem filhos); se não achar, aceita o de menor texto
+  // entre os que contêm a frase.
+  function findElementByText(text) {
+    var needle = text.trim().toLowerCase();
+    var all = document.querySelectorAll(
+      "h1, h2, h3, h4, h5, div, span, p, td, th, label"
+    );
     for (var i = 0; i < all.length; i++) {
-      if (all[i].children.length === 0 && all[i].textContent.trim() === text) {
+      if (
+        all[i].children.length === 0 &&
+        all[i].textContent.trim().toLowerCase() === needle
+      ) {
         return all[i];
       }
     }
-    return null;
+    var best = null;
+    for (var j = 0; j < all.length; j++) {
+      var content = all[j].textContent.trim().toLowerCase();
+      if (content.indexOf(needle) !== -1) {
+        if (!best || content.length < best.textContent.trim().length) {
+          best = all[j];
+        }
+      }
+    }
+    return best;
   }
 
   function commonAncestor(a, b) {
@@ -83,22 +101,57 @@
     return main || document.body;
   }
 
+  // Rede de segurança: independentemente de como o container foi
+  // escolhido, se ele for baixo demais para conter cards + gráfico +
+  // tabela (sintoma exato do bug anterior: só o cabeçalho saía no
+  // PDF), sobe mais alguns níveis até achar algo de altura plausível.
+  function ensureTallEnough(el) {
+    var MIN_HEIGHT = 500;
+    var guard = 0;
+    while (el && el.parentElement && guard < 10) {
+      var h = Math.max(
+        el.getBoundingClientRect().height,
+        el.scrollHeight || 0
+      );
+      if (h >= MIN_HEIGHT) return el;
+      el = el.parentElement;
+      guard++;
+    }
+    return el || document.body;
+  }
+
   // Estratégia principal: usar o ancestral comum entre o título do
-  // painel e a última seção conhecida da tela (Desempenho por
-  // Colaborador). Isso garante que cards, gráficos e tabela — tudo que
-  // fica entre os dois — entre na captura, em vez de parar cedo demais
-  // num wrapper estreito só do cabeçalho.
+  // painel e alguma outra seção conhecida da tela (tenta várias, da
+  // mais específica/profunda para a mais genérica). Isso garante que
+  // cards, gráficos e tabela — tudo que fica entre os dois — entre na
+  // captura, em vez de parar cedo demais num wrapper estreito só do
+  // cabeçalho. Por fim, ensureTallEnough() corrige o resultado caso a
+  // busca por texto não tenha achado nada útil.
   function getReportContainer(heading) {
+    var candidateLandmarks = [
+      "Desempenho por Colaborador",
+      "Composição e Evolução",
+      "Nacional x Importado",
+      "Colaboradores Ativos",
+      "Ritmo Médio"
+    ];
+    var container = null;
+
     if (heading) {
-      var landmark =
-        findElementByExactText("DESEMPENHO POR COLABORADOR") ||
-        findElementByExactText("COMPOSIÇÃO E EVOLUÇÃO");
-      if (landmark) {
-        var common = commonAncestor(heading, landmark);
-        if (common) return common;
+      for (var i = 0; i < candidateLandmarks.length && !container; i++) {
+        var landmark = findElementByText(candidateLandmarks[i]);
+        if (landmark) {
+          var common = commonAncestor(heading, landmark);
+          if (common) container = common;
+        }
       }
     }
-    return getContainerByWidthHeuristic(heading);
+
+    if (!container) {
+      container = getContainerByWidthHeuristic(heading);
+    }
+
+    return ensureTallEnough(container);
   }
 
   function getActivePeriodLabel() {
