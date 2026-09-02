@@ -52,6 +52,10 @@
     { id: "colaboradores-ativos", label: "Colaboradores Ativos", search: "Colaboradores Ativos" }
   ];
 
+  // Seção de lista (nome + valor por colaborador), diferente dos
+  // cartões de indicador simples acima.
+  var MAPA_DESEMPENHO = { label: "Mapa de Desempenho", search: "Mapa de desempenho" };
+
   // ---------------------------------------------------------------------
   // Helpers de leitura do estado atual da tela
   // ---------------------------------------------------------------------
@@ -161,6 +165,45 @@
     return { value: value.textContent.trim(), extra: extra.slice(0, 2) };
   }
 
+  // Lê um cartão de "lista" (ex.: Mapa de Desempenho — nome do
+  // colaborador + número, repetidos), em vez de um único valor. Ignora
+  // o próprio título do cartão e as abas de filtro (Ideal/Médio/
+  // Abaixo). Se o cartão mostrar uma mensagem de "sem dados", devolve
+  // ela em vez de linhas.
+  function extractListCardData(el, label) {
+    var skip = [label.trim().toLowerCase(), "ideal", "médio", "abaixo"];
+    var all = el.querySelectorAll("*");
+    var leaves = [];
+    for (var i = 0; i < all.length; i++) {
+      var node = all[i];
+      if (node.children.length !== 0) continue;
+      var t = node.textContent.trim();
+      if (!t || skip.indexOf(t.toLowerCase()) !== -1) continue;
+      leaves.push(t);
+    }
+
+    if (!leaves.length) {
+      return { empty: "Sem dados no período selecionado.", rows: [] };
+    }
+    if (leaves.length === 1) {
+      return { empty: leaves[0], rows: [] };
+    }
+
+    var numberRe = /^[0-9][0-9.,]*$/;
+    var rows = [];
+    for (var j = 0; j < leaves.length - 1; j++) {
+      if (!numberRe.test(leaves[j]) && numberRe.test(leaves[j + 1])) {
+        rows.push({ nome: leaves[j], valor: leaves[j + 1] });
+        j++; // já usou o valor, pula pro próximo par
+      }
+    }
+
+    if (!rows.length) {
+      return { empty: leaves.join(" "), rows: [] };
+    }
+    return { empty: null, rows: rows };
+  }
+
   function getActivePeriodLabel() {
     var labels = ["Dia", "Semana", "Mês", "Ano"];
     var buttons = Array.prototype.filter.call(
@@ -240,6 +283,33 @@
       "  .vx-print-kpi-value { font-size: 22pt; font-weight: 800; color: #111; }" +
       "  .vx-print-kpi-extra { font-size: 9pt; color: #777; margin: 4pt 0 0 0; }" +
       "  .vx-print-empty { font-size: 11pt; color: #777; }" +
+      "  .vx-print-list-section {" +
+      "    margin-top: 16pt;" +
+      "    border: 1pt solid #ddd;" +
+      "    border-radius: 8pt;" +
+      "    padding: 14pt 16pt;" +
+      "  }" +
+      "  .vx-print-list-title {" +
+      "    font-size: 12pt;" +
+      "    font-weight: 800;" +
+      "    color: #111;" +
+      "    margin: 0 0 10pt 0;" +
+      "    padding-bottom: 8pt;" +
+      "    border-bottom: 1pt solid #eee;" +
+      "  }" +
+      "  .vx-print-list-row {" +
+      "    display: flex;" +
+      "    justify-content: space-between;" +
+      "    align-items: baseline;" +
+      "    gap: 12pt;" +
+      "    padding: 5pt 0;" +
+      "    border-bottom: 0.5pt solid #f0f0f0;" +
+      "    break-inside: avoid;" +
+      "    page-break-inside: avoid;" +
+      "  }" +
+      "  .vx-print-list-row:last-child { border-bottom: none; }" +
+      "  .vx-print-list-name { font-size: 10.5pt; color: #222; }" +
+      "  .vx-print-list-value { font-size: 10.5pt; font-weight: 700; color: #111; white-space: nowrap; }" +
       "  @page { margin: 18mm; }" +
       "}";
     document.head.appendChild(style);
@@ -305,6 +375,44 @@
       empty.className = "vx-print-empty";
       empty.textContent = "Nenhum cartão selecionado.";
       root.appendChild(empty);
+    }
+
+    var mapaEl = resolveCardElement(MAPA_DESEMPENHO.search);
+    if (mapaEl) {
+      var section = document.createElement("div");
+      section.className = "vx-print-list-section";
+
+      var sectionTitle = document.createElement("div");
+      sectionTitle.className = "vx-print-list-title";
+      sectionTitle.textContent = MAPA_DESEMPENHO.label;
+      section.appendChild(sectionTitle);
+
+      var listData = extractListCardData(mapaEl, MAPA_DESEMPENHO.label);
+      if (listData.empty) {
+        var listEmpty = document.createElement("p");
+        listEmpty.className = "vx-print-empty";
+        listEmpty.textContent = listData.empty;
+        section.appendChild(listEmpty);
+      } else {
+        listData.rows.forEach(function (row) {
+          var rowEl = document.createElement("div");
+          rowEl.className = "vx-print-list-row";
+
+          var nameEl = document.createElement("span");
+          nameEl.className = "vx-print-list-name";
+          nameEl.textContent = row.nome;
+          rowEl.appendChild(nameEl);
+
+          var valEl = document.createElement("span");
+          valEl.className = "vx-print-list-value";
+          valEl.textContent = row.valor;
+          rowEl.appendChild(valEl);
+
+          section.appendChild(rowEl);
+        });
+      }
+
+      root.appendChild(section);
     }
 
     return root;
