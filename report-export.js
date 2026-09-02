@@ -3,20 +3,26 @@
  * -----------------------------------------------------------------------
  * Botão "Exportar Relatório" injetado na tela Painel (dashboard) do
  * sistema. Este arquivo é aditivo: não altera nem depende de detalhes
- * internos do bundle gerado em app.js. Ele apenas observa o DOM já
- * renderizado, adiciona um botão flutuante e, ao clicar, aciona a
- * impressão nativa do navegador (respeitando o filtro Dia/Semana/Mês/
- * Ano e a data selecionados no momento), escondendo o menu lateral e o
- * próprio botão via CSS de impressão — o usuário escolhe "Salvar como
- * PDF" no diálogo de impressão do navegador.
+ * internos do bundle gerado em app.js.
  *
- * Por que impressão nativa em vez de "print da tela" + canvas/imagem:
- * a abordagem anterior (html2canvas + jsPDF fatiando uma captura em
- * imagem) se mostrou frágil — ou cortava o conteúdo, ou espalhava tudo
- * em dezenas de páginas minúsculas e ilegíveis. A impressão nativa usa
- * texto real (vetorial), então fica nítido em qualquer zoom, e a
- * paginação é feita pelo próprio motor do navegador — muito mais
- * confiável.
+ * Histórico de abordagens (por que chegamos neste design):
+ * 1ª tentativa: capturar a tela em canvas (html2canvas) e fatiar em
+ * imagens no PDF (jsPDF) — frágil: ou cortava conteúdo, ou espalhava
+ * tudo em dezenas de páginas minúsculas.
+ * 2ª tentativa: impressão nativa do navegador, escondendo/mostrando os
+ * elementos reais da tela via CSS de impressão — melhor (texto
+ * vetorial, paginação correta), mas ainda frágil: dropdowns de filtro
+ * "flutuavam" fora do lugar, cartões cortavam entre páginas, e cartões
+ * desmarcados às vezes continuavam aparecendo (o app re-renderiza via
+ * React e pode desfazer classes que adicionamos no DOM que ele
+ * controla).
+ * 3ª tentativa (atual): não mexemos mais no DOM da tela. Só LEMOS o
+ * texto de cada cartão selecionado (rótulo + valor) e construímos um
+ * relatório próprio — um "resumo executivo" com grade de indicadores —
+ * num elemento novo, fora da árvore que o React controla (anexado
+ * direto no body). Isso elimina a classe inteira de bugs anteriores:
+ * não há nada pra "desfazer", nada flutuando fora do lugar, nada
+ * cortando ao meio.
  *
  * Mantido separado de app.js de propósito: app.js é um build minificado
  * sem código-fonte versionado, então qualquer lógica nova deve viver
@@ -28,18 +34,16 @@
 
   var BUTTON_ID = "vx-export-report-btn";
   var DIALOG_ID = "vx-export-report-dialog";
+  var REPORT_ROOT_ID = "vx-export-report-root";
   var PRINT_STYLE_ID = "vx-export-report-print-style";
   var PRINT_TARGET_CLASS = "vx-print-target";
-  var PRINT_HEADER_CLASS = "vx-print-header";
-  var PRINT_HIDE_CLASS = "vx-print-hide";
   var STORAGE_KEY = "vx-export-report-selected-cards";
   var BRAND_TEAL = "#16C2C2";
   var PAINEL_TITLE = "Painel de Produção";
 
   // Cartões de indicador que podem ser ligados/desligados no relatório.
   // "search" é o texto usado para localizar o cartão na tela (ver
-  // findElementByText). Gráficos e a tabela de colaboradores sempre
-  // entram no relatório — não são opcionais por enquanto.
+  // findElementByText), de onde extraímos rótulo + valor.
   var CARD_SECTIONS = [
     { id: "prod-nacional", label: "Produção Nacional", search: "Produção Nacional" },
     { id: "prod-importada", label: "Produção Importada", search: "Produção Importada" },
@@ -95,69 +99,68 @@
     return best;
   }
 
-  function commonAncestor(a, b) {
-    var ancestors = new Set();
-    var el = a;
-    while (el) {
-      ancestors.add(el);
-      el = el.parentElement;
-    }
-    el = b;
-    while (el) {
-      if (ancestors.has(el)) return el;
-      el = el.parentElement;
-    }
-    return null;
-  }
-
-  // Sobe a árvore a partir do título até achar um container "largo o
-  // suficiente" para ser a área de conteúdo principal (ignorando a
-  // barra lateral estreita). Cai para <main> ou document.body se não
-  // achar nada melhor.
-  function getContainerByWidthHeuristic(heading) {
-    var main = document.querySelector("main");
-    if (!heading) return main || document.body;
-
-    var el = heading;
-    var vw = window.innerWidth || document.documentElement.clientWidth;
-    while (el && el.parentElement) {
-      el = el.parentElement;
-      var w = el.getBoundingClientRect().width;
-      if (w >= vw * 0.55) return el;
-    }
-    return main || document.body;
-  }
-
-  // Estratégia principal: usar o ancestral comum entre o título do
-  // painel e alguma outra seção conhecida da tela (tenta várias, da
-  // mais específica/profunda para a mais genérica). Isso garante que
-  // cards, gráficos e tabela — tudo que fica entre os dois — fique
-  // dentro do container escolhido para impressão.
-  function getReportContainer(heading) {
-    var candidateLandmarks = [
-      "Desempenho por Colaborador",
-      "Composição e Evolução",
-      "Nacional x Importado",
-      "Colaboradores Ativos",
-      "Ritmo Médio"
-    ];
-    var container = null;
-
-    if (heading) {
-      for (var i = 0; i < candidateLandmarks.length && !container; i++) {
-        var landmark = findElementByText(candidateLandmarks[i]);
-        if (landmark) {
-          var common = commonAncestor(heading, landmark);
-          if (common) container = common;
+  // Sobe a partir do rótulo do cartão até um ancestral que (a) tem
+  // irmãos no mesmo nível (indício de estar numa fileira de cartões) e
+  // (b) tem tamanho plausível de cartão (não só a linha do ícone com o
+  // rótulo). Guarda o primeiro candidato com irmãos como reserva, caso
+  // nenhum nível satisfaça o tamanho mínimo.
+  function climbToCardLevel(el) {
+    var node = el;
+    var fallback = null;
+    while (node && node.parentElement) {
+      if (node.parentElement.children.length > 1) {
+        var rect = node.getBoundingClientRect();
+        if (rect.height >= 50 && rect.width >= 100) {
+          return node;
         }
+        if (!fallback) fallback = node;
+      }
+      node = node.parentElement;
+    }
+    return fallback || node;
+  }
+
+  function resolveCardElement(search) {
+    var labelEl = findElementByText(search);
+    if (!labelEl) return null;
+    return climbToCardLevel(labelEl);
+  }
+
+  // Lê o conteúdo de um cartão e separa em "valor principal" (o texto
+  // com a maior fonte lá dentro — normalmente o número grande, ou o
+  // nome do colaborador em destaque) e "extras" (as demais linhas de
+  // texto, ex.: "1%", "9.525 un.").
+  function extractCardData(el, label) {
+    var all = el.querySelectorAll("*");
+    var leaves = [];
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].children.length === 0 && all[i].textContent.trim()) {
+        leaves.push(all[i]);
       }
     }
-
-    if (!container) {
-      container = getContainerByWidthHeuristic(heading);
+    if (!leaves.length) {
+      return { value: el.textContent.trim() || "—", extra: [] };
     }
 
-    return container;
+    var value = leaves[0];
+    var maxSize = 0;
+    leaves.forEach(function (node) {
+      var size = parseFloat(getComputedStyle(node).fontSize) || 0;
+      if (size > maxSize) {
+        maxSize = size;
+        value = node;
+      }
+    });
+
+    var extra = [];
+    leaves.forEach(function (node) {
+      if (node === value) return;
+      var t = node.textContent.trim();
+      if (!t || t.toLowerCase() === label.toLowerCase()) return;
+      if (extra.indexOf(t) === -1) extra.push(t);
+    });
+
+    return { value: value.textContent.trim(), extra: extra.slice(0, 2) };
   }
 
   function getActivePeriodLabel() {
@@ -188,33 +191,6 @@
     return input && input.value ? input.value : null;
   }
 
-  // Sobe a partir do rótulo do cartão até um ancestral que (a) tem
-  // irmãos no mesmo nível (indício de estar numa fileira de cartões) e
-  // (b) tem tamanho plausível de cartão (não só a linha do ícone com o
-  // rótulo). Guarda o primeiro candidato com irmãos como reserva, caso
-  // nenhum nível satisfaça o tamanho mínimo.
-  function climbToCardLevel(el) {
-    var node = el;
-    var fallback = null;
-    while (node && node.parentElement) {
-      if (node.parentElement.children.length > 1) {
-        var rect = node.getBoundingClientRect();
-        if (rect.height >= 50 && rect.width >= 100) {
-          return node;
-        }
-        if (!fallback) fallback = node;
-      }
-      node = node.parentElement;
-    }
-    return fallback || node;
-  }
-
-  function resolveCardElement(search) {
-    var labelEl = findElementByText(search);
-    if (!labelEl) return null;
-    return climbToCardLevel(labelEl);
-  }
-
   function loadSelectedCardIds() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
@@ -234,69 +210,9 @@
     }
   }
 
-  // Esconde controles de filtro (selects/dropdowns de cada gráfico —
-  // ex.: escolher colaborador, período de comparação) na impressão.
-  // Eles costumam usar position: fixed/absolute calculado por JS para a
-  // tela normal; no layout de impressão (sidebar escondida, container
-  // reposicionado) esses valores ficam obsoletos e o controle "flutua"
-  // fora do lugar, sobre o gráfico. Como são só filtros interativos,
-  // não fazem sentido num PDF estático mesmo — melhor escondê-los.
-  function hideFloatingControls(container, hiddenEls) {
-    var controls = container.querySelectorAll(
-      "select, [role='combobox'], [role='listbox'], [aria-haspopup]"
-    );
-    for (var i = 0; i < controls.length; i++) {
-      controls[i].classList.add(PRINT_HIDE_CLASS);
-      hiddenEls.push(controls[i]);
-    }
-
-    var all = container.querySelectorAll("*");
-    for (var j = 0; j < all.length; j++) {
-      var el = all[j];
-      if (el.classList.contains(PRINT_HIDE_CLASS)) continue;
-      if (getComputedStyle(el).position === "fixed") {
-        el.classList.add(PRINT_HIDE_CLASS);
-        hiddenEls.push(el);
-      }
-    }
-  }
-
-  // Evita que um cartão (caixa com cantos arredondados + borda/sombra)
-  // seja cortado ao meio quando cai numa quebra de página. Detecta
-  // "cara de cartão" pelo estilo computado em vez de depender de nomes
-  // de classe do bundle. Retorna a lista de elementos alterados, para
-  // desfazer depois.
-  function markCardsToAvoidBreaking(container) {
-    var touched = [];
-    var all = container.querySelectorAll("*");
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      var cs = getComputedStyle(el);
-      var hasRadius = parseFloat(cs.borderTopLeftRadius) > 4;
-      var hasBoxLook =
-        cs.boxShadow !== "none" || parseFloat(cs.borderWidth) >= 1;
-      if (hasRadius && hasBoxLook) {
-        touched.push({
-          el: el,
-          breakInside: el.style.breakInside,
-          pageBreakInside: el.style.pageBreakInside
-        });
-        el.style.breakInside = "avoid";
-        el.style.pageBreakInside = "avoid";
-      }
-    }
-    return touched;
-  }
-
-  function unmarkCardsToAvoidBreaking(touched) {
-    touched.forEach(function (entry) {
-      entry.el.style.breakInside = entry.breakInside;
-      entry.el.style.pageBreakInside = entry.pageBreakInside;
-    });
-  }
-
   // ---------------------------------------------------------------------
-  // Impressão / exportação em PDF
+  // Montagem do relatório (elemento próprio, fora do DOM que o React
+  // controla) e impressão
   // ---------------------------------------------------------------------
 
   function ensurePrintStyle() {
@@ -310,49 +226,54 @@
       "  ." + PRINT_TARGET_CLASS + " * { visibility: visible !important; }" +
       "  #" + BUTTON_ID + " { display: none !important; }" +
       "  ." + PRINT_TARGET_CLASS + " {" +
+      "    display: block !important;" +
       "    position: absolute !important;" +
       "    left: 0 !important;" +
       "    top: 0 !important;" +
       "    width: 100% !important;" +
-      "    max-width: 100% !important;" +
-      "    height: auto !important;" +
-      "    max-height: none !important;" +
-      "    overflow: visible !important;" +
       "    margin: 0 !important;" +
       "    background: #fff !important;" +
-      "    box-shadow: none !important;" +
-      "    font-size: 13pt !important;" +
-      "  }" +
-      "  ." + PRINT_TARGET_CLASS + " * {" +
-      "    overflow: visible !important;" +
-      "    box-shadow: none !important;" +
-      "  }" +
-      "  ." + PRINT_HEADER_CLASS + " {" +
-      "    display: block !important;" +
-      "    margin: 0 0 16pt 0 !important;" +
       "    font-family: 'Inter', system-ui, sans-serif !important;" +
       "  }" +
-      "  ." + PRINT_HEADER_CLASS + " h1 {" +
-      "    font-size: 18pt !important;" +
-      "    margin: 0 0 4pt 0 !important;" +
+      "  .vx-print-header { margin: 0 0 20pt 0; }" +
+      "  .vx-print-header h1 { font-size: 20pt; margin: 0 0 4pt 0; color: #111; }" +
+      "  .vx-print-header p { font-size: 11pt; color: #555; margin: 2pt 0; }" +
+      "  .vx-print-grid {" +
+      "    display: grid;" +
+      "    grid-template-columns: repeat(2, 1fr);" +
+      "    gap: 14pt;" +
       "  }" +
-      "  ." + PRINT_HEADER_CLASS + " p {" +
-      "    font-size: 11pt !important;" +
-      "    color: #444 !important;" +
-      "    margin: 2pt 0 !important;" +
+      "  .vx-print-kpi {" +
+      "    border: 1pt solid #ddd;" +
+      "    border-radius: 8pt;" +
+      "    padding: 14pt 16pt;" +
+      "    break-inside: avoid;" +
+      "    page-break-inside: avoid;" +
       "  }" +
-      "  ." + PRINT_HIDE_CLASS + " {" +
-      "    display: none !important;" +
+      "  .vx-print-kpi-label {" +
+      "    font-size: 9pt;" +
+      "    text-transform: uppercase;" +
+      "    letter-spacing: 0.5pt;" +
+      "    color: " + BRAND_TEAL + ";" +
+      "    font-weight: 700;" +
+      "    margin: 0 0 6pt 0;" +
       "  }" +
-      "  @page { margin: 16mm; }" +
+      "  .vx-print-kpi-value { font-size: 22pt; font-weight: 800; color: #111; }" +
+      "  .vx-print-kpi-extra { font-size: 9pt; color: #777; margin: 4pt 0 0 0; }" +
+      "  .vx-print-empty { font-size: 11pt; color: #777; }" +
+      "  @page { margin: 18mm; }" +
       "}";
     document.head.appendChild(style);
   }
 
-  function buildPrintHeader(periodo, dataSel, geradoEm) {
+  function buildReportRoot(selectedCardIds, periodo, dataSel, geradoEm) {
+    var root = document.createElement("div");
+    root.id = REPORT_ROOT_ID;
+    root.className = PRINT_TARGET_CLASS;
+    root.style.display = "none"; // só aparece via @media print
+
     var header = document.createElement("div");
-    header.className = PRINT_HEADER_CLASS;
-    header.style.display = "none"; // só aparece via @media print
+    header.className = "vx-print-header";
     header.innerHTML =
       "<h1>Relatório de Produção</h1>" +
       "<p>Período: " +
@@ -362,118 +283,71 @@
       "<p>Gerado em: " +
       geradoEm +
       "</p>";
-    return header;
-  }
+    root.appendChild(header);
 
-  // O app parece atualizar dados em segundo plano (polling) e
-  // re-renderizar via React — o que pode desfazer silenciosamente as
-  // classes/estilos que marcamos para a impressão entre o momento em
-  // que marcamos e o momento em que a impressão de fato acontece. Este
-  // observador reaplica nosso estado imediatamente sempre que algo
-  // muda, enquanto a exportação estiver em andamento.
-  function startPrintStateEnforcer(container, hiddenEls, breakMarks) {
-    function reassert() {
-      if (!container.classList.contains(PRINT_TARGET_CLASS)) {
-        container.classList.add(PRINT_TARGET_CLASS);
+    var grid = document.createElement("div");
+    grid.className = "vx-print-grid";
+    var foundAny = false;
+
+    CARD_SECTIONS.forEach(function (section) {
+      if (selectedCardIds.indexOf(section.id) === -1) return;
+
+      var el = resolveCardElement(section.search);
+      var data = el ? extractCardData(el, section.label) : null;
+
+      var cell = document.createElement("div");
+      cell.className = "vx-print-kpi";
+
+      var labelEl = document.createElement("div");
+      labelEl.className = "vx-print-kpi-label";
+      labelEl.textContent = section.label;
+      cell.appendChild(labelEl);
+
+      var valueEl = document.createElement("div");
+      valueEl.className = "vx-print-kpi-value";
+      valueEl.textContent = data ? data.value : "—";
+      cell.appendChild(valueEl);
+
+      if (data && data.extra.length) {
+        var extraEl = document.createElement("div");
+        extraEl.className = "vx-print-kpi-extra";
+        extraEl.textContent = data.extra.join(" · ");
+        cell.appendChild(extraEl);
       }
-      hiddenEls.forEach(function (el) {
-        if (document.body.contains(el) && !el.classList.contains(PRINT_HIDE_CLASS)) {
-          el.classList.add(PRINT_HIDE_CLASS);
-        }
-      });
-      breakMarks.forEach(function (entry) {
-        if (!document.body.contains(entry.el)) return;
-        if (entry.el.style.breakInside !== "avoid") {
-          entry.el.style.breakInside = "avoid";
-        }
-        if (entry.el.style.pageBreakInside !== "avoid") {
-          entry.el.style.pageBreakInside = "avoid";
-        }
-      });
+
+      grid.appendChild(cell);
+      foundAny = true;
+    });
+
+    root.appendChild(grid);
+
+    if (!foundAny) {
+      var empty = document.createElement("p");
+      empty.className = "vx-print-empty";
+      empty.textContent = "Nenhum cartão selecionado.";
+      root.appendChild(empty);
     }
 
-    var observer = new MutationObserver(reassert);
-    observer.observe(container, {
-      attributes: true,
-      attributeFilter: ["class", "style"],
-      subtree: true
-    });
-    reassert();
-    return observer;
+    return root;
   }
 
   function runExport(selectedCardIds) {
-    var heading = findPainelHeading();
-    var container = getReportContainer(heading);
-    if (!container) {
-      alert("Não encontrei o conteúdo do painel para exportar.");
-      return;
-    }
-
     ensurePrintStyle();
-
-    // Esconde (só na impressão) os cartões que o usuário desmarcou.
-    var hiddenEls = [];
-    var diagLines = [];
-    CARD_SECTIONS.forEach(function (section) {
-      if (selectedCardIds.indexOf(section.id) !== -1) return;
-      var el = resolveCardElement(section.search);
-      if (el) {
-        el.classList.add(PRINT_HIDE_CLASS);
-        hiddenEls.push(el);
-        var rect = el.getBoundingClientRect();
-        var line =
-          "✓ " + section.label + " → escondido (" +
-          el.tagName.toLowerCase() +
-          (el.className && typeof el.className === "string" ? "." + el.className.split(" ").join(".") : "") +
-          ", " + Math.round(rect.width) + "x" + Math.round(rect.height) + "px)";
-        diagLines.push(line);
-        console.debug("[report-export] escondendo cartão:", section.label, el);
-      } else {
-        diagLines.push("✗ " + section.label + " → NÃO ACHADO na tela");
-        console.warn("[report-export] não achei o cartão para esconder:", section.label);
-      }
-    });
-
-    // Diagnóstico temporário: mostra na tela (sem precisar abrir o
-    // console) exatamente o que o script encontrou, pra investigar por
-    // que cartões desmarcados continuam saindo no PDF.
-    if (window.__vxExportDebug !== false) {
-      alert(
-        "[Diagnóstico Exportar Relatório]\n\n" +
-          (diagLines.length ? diagLines.join("\n") : "(nenhum cartão desmarcado)") +
-          "\n\nClique OK para continuar para a impressão."
-      );
-    }
-
-    // Esconde dropdowns/filtros que "flutuam" fora do lugar na
-    // impressão, e evita que cartões sejam cortados ao virar página.
-    hideFloatingControls(container, hiddenEls);
-    var breakMarks = markCardsToAvoidBreaking(container);
 
     var periodo = getActivePeriodLabel() || "-";
     var dataSel = getSelectedDate();
     var geradoEm = new Date().toLocaleString("pt-BR");
-    var header = buildPrintHeader(periodo, dataSel, geradoEm);
+
+    var root = buildReportRoot(selectedCardIds, periodo, dataSel, geradoEm);
+    document.body.appendChild(root);
 
     var originalTitle = document.title;
     var fileDate = dataSel || new Date().toISOString().slice(0, 10);
     var fileSafePeriodo = periodo.toLowerCase().replace(/[^a-z0-9]/gi, "");
     document.title = "relatorio-producao-" + fileSafePeriodo + "-" + fileDate;
 
-    container.classList.add(PRINT_TARGET_CLASS);
-    container.insertBefore(header, container.firstChild);
-
-    var enforcer = startPrintStateEnforcer(container, hiddenEls, breakMarks);
-
     function cleanup() {
-      enforcer.disconnect();
-      container.classList.remove(PRINT_TARGET_CLASS);
-      hiddenEls.forEach(function (el) {
-        el.classList.remove(PRINT_HIDE_CLASS);
-      });
-      unmarkCardsToAvoidBreaking(breakMarks);
-      if (header.parentNode) header.parentNode.removeChild(header);
+      if (root.parentNode) root.parentNode.removeChild(root);
       document.title = originalTitle;
       window.removeEventListener("afterprint", cleanup);
     }
@@ -549,7 +423,7 @@
     panel.appendChild(title);
 
     var subtitle = document.createElement("p");
-    subtitle.textContent = "Escolha quais cartões entram no PDF (gráficos e a tabela de colaboradores sempre entram):";
+    subtitle.textContent = "Escolha quais indicadores entram no resumo:";
     subtitle.style.margin = "0 0 12px 0";
     subtitle.style.fontSize = "12px";
     subtitle.style.color = "#666";
@@ -633,7 +507,7 @@
     btn.type = "button";
     btn.innerHTML = "&#8681;&nbsp; Exportar Relatório";
     btn.title =
-      "Exportar o painel atual (respeitando o filtro selecionado) em PDF — escolha \"Salvar como PDF\" na janela de impressão";
+      "Exportar um resumo dos indicadores selecionados em PDF — escolha \"Salvar como PDF\" na janela de impressão";
 
     var style = btn.style;
     style.position = "fixed";
