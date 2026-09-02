@@ -434,11 +434,19 @@
   // caber — assim o PDF sempre sai numa página só.
   function fitToOnePage(root) {
     root.style.transform = "";
+    root.style.height = "";
+    root.style.overflow = "";
     var contentHeight = root.scrollHeight;
     if (contentHeight > PAGE_CONTENT_HEIGHT_PX) {
       var scale = PAGE_CONTENT_HEIGHT_PX / contentHeight;
       root.style.transformOrigin = "top left";
       root.style.transform = "scale(" + scale.toFixed(4) + ")";
+      // O transform só encolhe visualmente — o navegador continua
+      // reservando a altura ORIGINAL (bem maior) no fluxo da página,
+      // o que sobrava como páginas em branco depois do conteúdo. Fixar
+      // a altura já reduzida (+ overflow:hidden) resolve.
+      root.style.height = Math.ceil(contentHeight * scale) + "px";
+      root.style.overflow = "hidden";
     }
   }
 
