@@ -234,6 +234,67 @@
     }
   }
 
+  // Esconde controles de filtro (selects/dropdowns de cada gráfico —
+  // ex.: escolher colaborador, período de comparação) na impressão.
+  // Eles costumam usar position: fixed/absolute calculado por JS para a
+  // tela normal; no layout de impressão (sidebar escondida, container
+  // reposicionado) esses valores ficam obsoletos e o controle "flutua"
+  // fora do lugar, sobre o gráfico. Como são só filtros interativos,
+  // não fazem sentido num PDF estático mesmo — melhor escondê-los.
+  function hideFloatingControls(container, hiddenEls) {
+    var controls = container.querySelectorAll(
+      "select, [role='combobox'], [role='listbox'], [aria-haspopup]"
+    );
+    for (var i = 0; i < controls.length; i++) {
+      controls[i].classList.add(PRINT_HIDE_CLASS);
+      hiddenEls.push(controls[i]);
+    }
+
+    var all = container.querySelectorAll("*");
+    for (var j = 0; j < all.length; j++) {
+      var el = all[j];
+      if (el.classList.contains(PRINT_HIDE_CLASS)) continue;
+      if (getComputedStyle(el).position === "fixed") {
+        el.classList.add(PRINT_HIDE_CLASS);
+        hiddenEls.push(el);
+      }
+    }
+  }
+
+  // Evita que um cartão (caixa com cantos arredondados + borda/sombra)
+  // seja cortado ao meio quando cai numa quebra de página. Detecta
+  // "cara de cartão" pelo estilo computado em vez de depender de nomes
+  // de classe do bundle. Retorna a lista de elementos alterados, para
+  // desfazer depois.
+  function markCardsToAvoidBreaking(container) {
+    var touched = [];
+    var all = container.querySelectorAll("*");
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var cs = getComputedStyle(el);
+      var hasRadius = parseFloat(cs.borderTopLeftRadius) > 4;
+      var hasBoxLook =
+        cs.boxShadow !== "none" || parseFloat(cs.borderWidth) >= 1;
+      if (hasRadius && hasBoxLook) {
+        touched.push({
+          el: el,
+          breakInside: el.style.breakInside,
+          pageBreakInside: el.style.pageBreakInside
+        });
+        el.style.breakInside = "avoid";
+        el.style.pageBreakInside = "avoid";
+      }
+    }
+    return touched;
+  }
+
+  function unmarkCardsToAvoidBreaking(touched) {
+    touched.forEach(function (entry) {
+      entry.el.style.breakInside = entry.breakInside;
+      entry.el.style.pageBreakInside = entry.pageBreakInside;
+    });
+  }
+
   // ---------------------------------------------------------------------
   // Impressão / exportação em PDF
   // ---------------------------------------------------------------------
@@ -325,6 +386,11 @@
       }
     });
 
+    // Esconde dropdowns/filtros que "flutuam" fora do lugar na
+    // impressão, e evita que cartões sejam cortados ao virar página.
+    hideFloatingControls(container, hiddenEls);
+    var breakMarks = markCardsToAvoidBreaking(container);
+
     var periodo = getActivePeriodLabel() || "-";
     var dataSel = getSelectedDate();
     var geradoEm = new Date().toLocaleString("pt-BR");
@@ -343,6 +409,7 @@
       hiddenEls.forEach(function (el) {
         el.classList.remove(PRINT_HIDE_CLASS);
       });
+      unmarkCardsToAvoidBreaking(breakMarks);
       if (header.parentNode) header.parentNode.removeChild(header);
       document.title = originalTitle;
       window.removeEventListener("afterprint", cleanup);
