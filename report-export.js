@@ -37,11 +37,39 @@
     return null;
   }
 
+  // Acha um elemento "folha" (sem filhos) cujo texto bate exatamente
+  // com o procurado. Usado para localizar marcos fixos do layout
+  // (títulos de seção) sem depender de classes internas do bundle.
+  function findElementByExactText(text) {
+    var all = document.querySelectorAll("h1, h2, h3, h4, div, span, p");
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].children.length === 0 && all[i].textContent.trim() === text) {
+        return all[i];
+      }
+    }
+    return null;
+  }
+
+  function commonAncestor(a, b) {
+    var ancestors = new Set();
+    var el = a;
+    while (el) {
+      ancestors.add(el);
+      el = el.parentElement;
+    }
+    el = b;
+    while (el) {
+      if (ancestors.has(el)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   // Sobe a árvore a partir do título até achar um container "largo o
   // suficiente" para ser a área de conteúdo principal (ignorando a
   // barra lateral estreita). Cai para <main> ou document.body se não
   // achar nada melhor.
-  function getReportContainer(heading) {
+  function getContainerByWidthHeuristic(heading) {
     var main = document.querySelector("main");
     if (!heading) return main || document.body;
 
@@ -53,6 +81,24 @@
       if (w >= vw * 0.55) return el;
     }
     return main || document.body;
+  }
+
+  // Estratégia principal: usar o ancestral comum entre o título do
+  // painel e a última seção conhecida da tela (Desempenho por
+  // Colaborador). Isso garante que cards, gráficos e tabela — tudo que
+  // fica entre os dois — entre na captura, em vez de parar cedo demais
+  // num wrapper estreito só do cabeçalho.
+  function getReportContainer(heading) {
+    if (heading) {
+      var landmark =
+        findElementByExactText("DESEMPENHO POR COLABORADOR") ||
+        findElementByExactText("COMPOSIÇÃO E EVOLUÇÃO");
+      if (landmark) {
+        var common = commonAncestor(heading, landmark);
+        if (common) return common;
+      }
+    }
+    return getContainerByWidthHeuristic(heading);
   }
 
   function getActivePeriodLabel() {
