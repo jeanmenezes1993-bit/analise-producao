@@ -365,6 +365,43 @@
     return header;
   }
 
+  // O app parece atualizar dados em segundo plano (polling) e
+  // re-renderizar via React — o que pode desfazer silenciosamente as
+  // classes/estilos que marcamos para a impressão entre o momento em
+  // que marcamos e o momento em que a impressão de fato acontece. Este
+  // observador reaplica nosso estado imediatamente sempre que algo
+  // muda, enquanto a exportação estiver em andamento.
+  function startPrintStateEnforcer(container, hiddenEls, breakMarks) {
+    function reassert() {
+      if (!container.classList.contains(PRINT_TARGET_CLASS)) {
+        container.classList.add(PRINT_TARGET_CLASS);
+      }
+      hiddenEls.forEach(function (el) {
+        if (document.body.contains(el) && !el.classList.contains(PRINT_HIDE_CLASS)) {
+          el.classList.add(PRINT_HIDE_CLASS);
+        }
+      });
+      breakMarks.forEach(function (entry) {
+        if (!document.body.contains(entry.el)) return;
+        if (entry.el.style.breakInside !== "avoid") {
+          entry.el.style.breakInside = "avoid";
+        }
+        if (entry.el.style.pageBreakInside !== "avoid") {
+          entry.el.style.pageBreakInside = "avoid";
+        }
+      });
+    }
+
+    var observer = new MutationObserver(reassert);
+    observer.observe(container, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      subtree: true
+    });
+    reassert();
+    return observer;
+  }
+
   function runExport(selectedCardIds) {
     var heading = findPainelHeading();
     var container = getReportContainer(heading);
@@ -383,6 +420,9 @@
       if (el) {
         el.classList.add(PRINT_HIDE_CLASS);
         hiddenEls.push(el);
+        console.debug("[report-export] escondendo cartão:", section.label, el);
+      } else {
+        console.warn("[report-export] não achei o cartão para esconder:", section.label);
       }
     });
 
@@ -404,7 +444,10 @@
     container.classList.add(PRINT_TARGET_CLASS);
     container.insertBefore(header, container.firstChild);
 
+    var enforcer = startPrintStateEnforcer(container, hiddenEls, breakMarks);
+
     function cleanup() {
+      enforcer.disconnect();
       container.classList.remove(PRINT_TARGET_CLASS);
       hiddenEls.forEach(function (el) {
         el.classList.remove(PRINT_HIDE_CLASS);
