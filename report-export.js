@@ -248,9 +248,13 @@
     style.id = PRINT_STYLE_ID;
     style.textContent =
       "@media print {" +
-      "  body * { visibility: hidden !important; }" +
-      "  ." + PRINT_TARGET_CLASS + "," +
-      "  ." + PRINT_TARGET_CLASS + " * { visibility: visible !important; }" +
+      // "visibility: hidden" some da vista mas NÃO tira o elemento do
+      // fluxo — o navegador ainda reserva a altura dele pra paginação,
+      // e isso sozinho já gerava páginas em branco extras (a tela
+      // inteira do app é bem mais alta que uma página). Por isso
+      // escondemos o app de verdade (display:none) em vez de só
+      // deixá-lo invisível.
+      "  #root { display: none !important; }" +
       "  #" + BUTTON_ID + " { display: none !important; }" +
       "  ." + PRINT_TARGET_CLASS + " {" +
       "    display: block !important;" +
