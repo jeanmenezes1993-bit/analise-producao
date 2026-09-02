@@ -33,17 +33,15 @@
   "use strict";
 
   var BUTTON_ID = "vx-export-report-btn";
-  var DIALOG_ID = "vx-export-report-dialog";
   var REPORT_ROOT_ID = "vx-export-report-root";
   var PRINT_STYLE_ID = "vx-export-report-print-style";
   var PRINT_TARGET_CLASS = "vx-print-target";
-  var STORAGE_KEY = "vx-export-report-selected-cards";
   var BRAND_TEAL = "#16C2C2";
   var PAINEL_TITLE = "Painel de Produção";
 
-  // Cartões de indicador que podem ser ligados/desligados no relatório.
-  // "search" é o texto usado para localizar o cartão na tela (ver
-  // findElementByText), de onde extraímos rótulo + valor.
+  // Cartões de indicador que entram no relatório. "search" é o texto
+  // usado para localizar o cartão na tela (ver findElementByText), de
+  // onde extraímos rótulo + valor.
   var CARD_SECTIONS = [
     { id: "prod-nacional", label: "Produção Nacional", search: "Produção Nacional" },
     { id: "prod-importada", label: "Produção Importada", search: "Produção Importada" },
@@ -189,25 +187,6 @@
   function getSelectedDate() {
     var input = document.querySelector('input[type="date"]');
     return input && input.value ? input.value : null;
-  }
-
-  function loadSelectedCardIds() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      var parsed = raw ? JSON.parse(raw) : null;
-      return Array.isArray(parsed) ? parsed : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function saveSelectedCardIds(ids) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-    } catch (e) {
-      // localStorage indisponível (modo privado etc.) — sem problema,
-      // só não lembramos a escolha da próxima vez.
-    }
   }
 
   // ---------------------------------------------------------------------
@@ -361,140 +340,11 @@
     window.print();
   }
 
-  // ---------------------------------------------------------------------
-  // Diálogo de seleção de cartões
-  // ---------------------------------------------------------------------
-
-  function styleDialogButton(btn, primary) {
-    var style = btn.style;
-    style.padding = "8px 16px";
-    style.borderRadius = "8px";
-    style.fontSize = "13px";
-    style.fontWeight = "600";
-    style.fontFamily = "'Inter', system-ui, sans-serif";
-    style.cursor = "pointer";
-    if (primary) {
-      style.background = BRAND_TEAL;
-      style.color = "#fff";
-      style.border = "none";
-    } else {
-      style.background = "#fff";
-      style.color = "#333";
-      style.border = "1px solid #ddd";
-    }
-  }
-
-  function closeDialog() {
-    var overlay = document.getElementById(DIALOG_ID);
-    if (overlay) overlay.remove();
-  }
-
-  function openExportDialog() {
-    if (document.getElementById(DIALOG_ID)) return;
-
-    var overlay = document.createElement("div");
-    overlay.id = DIALOG_ID;
-    var overlayStyle = overlay.style;
-    overlayStyle.position = "fixed";
-    overlayStyle.inset = "0";
-    overlayStyle.background = "rgba(15,23,23,0.55)";
-    overlayStyle.zIndex = "2147483600";
-    overlayStyle.display = "flex";
-    overlayStyle.alignItems = "center";
-    overlayStyle.justifyContent = "center";
-    overlayStyle.fontFamily = "'Inter', system-ui, sans-serif";
-
-    var panel = document.createElement("div");
-    var panelStyle = panel.style;
-    panelStyle.background = "#fff";
-    panelStyle.borderRadius = "14px";
-    panelStyle.padding = "20px 22px";
-    panelStyle.width = "320px";
-    panelStyle.maxWidth = "90vw";
-    panelStyle.maxHeight = "80vh";
-    panelStyle.overflowY = "auto";
-    panelStyle.boxShadow = "0 20px 60px rgba(0,0,0,0.35)";
-
-    var title = document.createElement("h3");
-    title.textContent = "Exportar Relatório";
-    title.style.margin = "0 0 4px 0";
-    title.style.fontSize = "16px";
-    title.style.color = "#111";
-    panel.appendChild(title);
-
-    var subtitle = document.createElement("p");
-    subtitle.textContent = "Escolha quais indicadores entram no resumo:";
-    subtitle.style.margin = "0 0 12px 0";
-    subtitle.style.fontSize = "12px";
-    subtitle.style.color = "#666";
-    subtitle.style.lineHeight = "1.4";
-    panel.appendChild(subtitle);
-
-    var stored = loadSelectedCardIds();
-    var checkboxes = [];
-
-    CARD_SECTIONS.forEach(function (section) {
-      var row = document.createElement("label");
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "8px";
-      row.style.padding = "6px 0";
-      row.style.fontSize = "13px";
-      row.style.color = "#222";
-      row.style.cursor = "pointer";
-
-      var cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = stored ? stored.indexOf(section.id) !== -1 : true;
-      cb.dataset.sectionId = section.id;
-      row.appendChild(cb);
-
-      var span = document.createElement("span");
-      span.textContent = section.label;
-      row.appendChild(span);
-
-      panel.appendChild(row);
-      checkboxes.push(cb);
+  function exportAllCards() {
+    var allIds = CARD_SECTIONS.map(function (section) {
+      return section.id;
     });
-
-    var actions = document.createElement("div");
-    actions.style.display = "flex";
-    actions.style.justifyContent = "flex-end";
-    actions.style.gap = "8px";
-    actions.style.marginTop = "16px";
-
-    var cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.textContent = "Cancelar";
-    styleDialogButton(cancelBtn, false);
-    cancelBtn.addEventListener("click", closeDialog);
-
-    var confirmBtn = document.createElement("button");
-    confirmBtn.type = "button";
-    confirmBtn.textContent = "Gerar PDF";
-    styleDialogButton(confirmBtn, true);
-    confirmBtn.addEventListener("click", function () {
-      var selectedIds = checkboxes
-        .filter(function (cb) {
-          return cb.checked;
-        })
-        .map(function (cb) {
-          return cb.dataset.sectionId;
-        });
-      saveSelectedCardIds(selectedIds);
-      closeDialog();
-      runExport(selectedIds);
-    });
-
-    actions.appendChild(cancelBtn);
-    actions.appendChild(confirmBtn);
-    panel.appendChild(actions);
-
-    overlay.appendChild(panel);
-    overlay.addEventListener("click", function (e) {
-      if (e.target === overlay) closeDialog();
-    });
-    document.body.appendChild(overlay);
+    runExport(allIds);
   }
 
   // ---------------------------------------------------------------------
@@ -507,7 +357,7 @@
     btn.type = "button";
     btn.innerHTML = "&#8681;&nbsp; Exportar Relatório";
     btn.title =
-      "Exportar um resumo dos indicadores selecionados em PDF — escolha \"Salvar como PDF\" na janela de impressão";
+      "Exportar um resumo dos indicadores em PDF — escolha \"Salvar como PDF\" na janela de impressão";
 
     var style = btn.style;
     style.position = "fixed";
@@ -532,7 +382,7 @@
     btn.addEventListener("mouseleave", function () {
       style.filter = "none";
     });
-    btn.addEventListener("click", openExportDialog);
+    btn.addEventListener("click", exportAllCards);
 
     document.body.appendChild(btn);
     return btn;
@@ -545,7 +395,6 @@
       createButton();
     } else if (!onPainel && btn) {
       btn.remove();
-      closeDialog();
     }
   }
 
