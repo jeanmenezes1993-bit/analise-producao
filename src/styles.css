@@ -15,6 +15,7 @@
   --text: #0f1720;
   --text-muted: #6b7680;
   --sidebar-text: #ffffff;
+  --shell-bg: #dbe2e4;
 }
 
 [data-theme="dark"] {
@@ -24,6 +25,7 @@
   --text: #f2f5f5;
   --text-muted: #8a9a9a;
   --sidebar-text: #ffffff;
+  --shell-bg: #0b0e0e;
 }
 
 html, body, #root {
@@ -40,7 +42,7 @@ body {
 .app-shell {
   display: flex;
   min-height: 100vh;
-  background: #0b0e0e;
+  background: var(--shell-bg);
   padding: 16px;
   gap: 16px;
 }
