@@ -5,6 +5,7 @@ import Registrar from "./Registrar.jsx";
 import Comparativo from "./Comparativo.jsx";
 import Colaboradores from "./Colaboradores.jsx";
 import Produtos from "./Produtos.jsx";
+import Login from "./Login.jsx";
 
 function usePersistedTheme() {
   const [theme, setTheme] = useState(() => localStorage.getItem("vx-theme") || "dark");
@@ -26,8 +27,13 @@ const PAGINAS = {
 export default function App() {
   const [page, setPage] = useState("painel");
   const [theme, setTheme] = usePersistedTheme();
+  const [logado, setLogado] = useState(false);
 
   const Pagina = PAGINAS[page] || Painel;
+
+  if (!logado) {
+    return <Login onEntrar={() => setLogado(true)} />;
+  }
 
   return (
     <div className="app-shell">
