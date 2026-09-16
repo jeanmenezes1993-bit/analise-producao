@@ -385,7 +385,6 @@ body {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 22px 24px;
-  max-width: 900px;
 }
 
 .form-section-title {
@@ -531,7 +530,6 @@ body {
 /* ---- Registros recentes -------------------------------------------- */
 
 .registros-recentes {
-  max-width: 900px;
   margin-top: 20px;
   background: var(--bg-card);
   border: 1px solid var(--border);
