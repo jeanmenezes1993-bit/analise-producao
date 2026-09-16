@@ -1,11 +1,12 @@
 import React from "react";
+import { LayoutGrid, CirclePlus, Shuffle, Users, Tag, Sun, Moon } from "lucide-react";
 
 const NAV_ITEMS = [
-  { id: "painel", label: "Painel", icon: "🗂️" },
-  { id: "registrar", label: "Registrar", icon: "➕" },
-  { id: "comparativo", label: "Comparativo", icon: "🔀" },
-  { id: "colaboradores", label: "Colaboradores", icon: "👥" },
-  { id: "produtos", label: "Produtos", icon: "🏷️" }
+  { id: "painel", label: "Painel", Icon: LayoutGrid },
+  { id: "registrar", label: "Registrar", Icon: CirclePlus },
+  { id: "comparativo", label: "Comparativo", Icon: Shuffle },
+  { id: "colaboradores", label: "Colaboradores", Icon: Users },
+  { id: "produtos", label: "Produtos", Icon: Tag }
 ];
 
 export default function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
@@ -23,13 +24,14 @@ export default function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
             className={"sidebar-link" + (page === item.id ? " active" : "")}
             onClick={() => onNavigate(item.id)}
           >
-            <span>{item.icon}</span>
+            <item.Icon size={18} strokeWidth={2} />
             {item.label}
           </button>
         ))}
       </nav>
       <button type="button" className="sidebar-theme-toggle" onClick={onToggleTheme}>
-        {theme === "dark" ? "☀️ Tema claro" : "🌙 Tema escuro"}
+        {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        {theme === "dark" ? "Tema claro" : "Tema escuro"}
       </button>
     </aside>
   );
