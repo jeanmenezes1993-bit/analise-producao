@@ -316,6 +316,20 @@ body {
   margin-bottom: 12px;
 }
 
+.mapa-secao {
+  margin-bottom: 16px;
+}
+
+.mapa-secao:last-child {
+  margin-bottom: 0;
+}
+
+.mapa-secao-titulo {
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
 .mapa-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

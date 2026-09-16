@@ -32,7 +32,6 @@ function hojeISO() {
 export default function Painel() {
   const [periodo, setPeriodo] = useState("dia");
   const [dataRef, setDataRef] = useState(hojeISO());
-  const [tabMapa, setTabMapa] = useState("ideal");
   const { loading, error, data } = usePainelData(periodo, dataRef);
 
   return (
@@ -86,7 +85,7 @@ export default function Painel() {
           <div className="section-title">Distribuição Operacional</div>
           <div className="charts-row">
             <ProcessoChart data={data} />
-            <MapaDesempenho data={data} tab={tabMapa} setTab={setTabMapa} />
+            <MapaDesempenho data={data} />
           </div>
 
           <div className="section-title">Tendência e Horários</div>
@@ -273,39 +272,38 @@ function ProcessoChart({ data }) {
 const CATEGORIA_COR = { ideal: "#22C55E", medio: "#F5A623", abaixo: "#E5484D" };
 const CATEGORIA_LABEL = { ideal: "Ideal", medio: "Médio", abaixo: "Abaixo" };
 
-function MapaDesempenho({ data, tab, setTab }) {
-  const filtrado = data.mapaDesempenho.filter((c) => c.categoria === tab);
+function MapaDesempenho({ data }) {
+  const categorias = ["ideal", "medio", "abaixo"];
+  const semDados = data.mapaDesempenho.length === 0;
   return (
     <div className="chart-card">
       <div className="chart-card-title">Mapa de Desempenho</div>
-      <div className="tabs">
-        {["ideal", "medio", "abaixo"].map((cat) => (
-          <button
-            key={cat}
-            type="button"
-            className={"tab-btn" + (tab === cat ? " active" : "")}
-            style={tab === cat ? { background: CATEGORIA_COR[cat] } : {}}
-            onClick={() => setTab(cat)}
-          >
-            {CATEGORIA_LABEL[cat]}
-          </button>
-        ))}
-      </div>
-      {filtrado.length === 0 ? (
+      {semDados ? (
         <div className="state-msg" style={{ padding: 20 }}>Sem dados no período selecionado.</div>
       ) : (
-        <div className="mapa-grid">
-          {filtrado.map((c) => (
-            <div className="mapa-item" key={c.nome}>
-              <div className="mapa-item-nome" title={c.nome}>{c.nome}</div>
-              <div className="mapa-item-valor">{numero(c.unidades)}</div>
-              <div
-                className="mapa-item-bar"
-                style={{ background: CATEGORIA_COR[c.categoria] }}
-              />
+        categorias.map((cat) => {
+          const itens = data.mapaDesempenho.filter((c) => c.categoria === cat);
+          if (itens.length === 0) return null;
+          return (
+            <div key={cat} className="mapa-secao">
+              <div className="mapa-secao-titulo" style={{ color: CATEGORIA_COR[cat] }}>
+                ● {CATEGORIA_LABEL[cat]}
+              </div>
+              <div className="mapa-grid">
+                {itens.map((c) => (
+                  <div className="mapa-item" key={c.nome}>
+                    <div className="mapa-item-nome" title={c.nome}>{c.nome}</div>
+                    <div className="mapa-item-valor">{numero(c.unidades)}</div>
+                    <div
+                      className="mapa-item-bar"
+                      style={{ background: CATEGORIA_COR[c.categoria] }}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })
       )}
     </div>
   );
