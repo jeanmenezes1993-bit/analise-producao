@@ -40,6 +40,9 @@ body {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  background: #0b0e0e;
+  padding: 16px;
+  gap: 16px;
 }
 
 .sidebar {
@@ -50,6 +53,10 @@ body {
   display: flex;
   flex-direction: column;
   padding: 24px 0;
+  border-radius: 28px;
+  height: calc(100vh - 32px);
+  position: sticky;
+  top: 16px;
 }
 
 .sidebar-brand {
