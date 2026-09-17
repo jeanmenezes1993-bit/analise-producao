@@ -30,7 +30,7 @@ function hojeISO() {
 }
 
 export default function Painel() {
-  const [periodo, setPeriodo] = useState("dia");
+  const [periodo, setPeriodo] = useState("mes");
   const [dataRef, setDataRef] = useState(hojeISO());
   const { loading, error, data } = usePainelData(periodo, dataRef);
 
