@@ -3,6 +3,11 @@ import { supabase } from "./supabaseClient.js";
 import { useColaboradores } from "./useColaboradores.js";
 import { useSkus } from "./useSkus.js";
 import { ORIGENS } from "./origem.js";
+import EditarRegistroModal from "./EditarRegistroModal.jsx";
+import { Pencil } from "lucide-react";
+
+const REGISTROS_POR_PAGINA = 15;
+const MAX_PAGINAS = 10;
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -95,6 +100,9 @@ export default function Registrar() {
   const [registros, setRegistros] = useState([]);
   const [buscaRegistros, setBuscaRegistros] = useState("");
   const [carregandoRegistros, setCarregandoRegistros] = useState(true);
+  const [pagina, setPagina] = useState(1);
+  const [totalRegistros, setTotalRegistros] = useState(0);
+  const [editando, setEditando] = useState(null);
 
   const fingerprintsSessao = useRef(new Set());
 
@@ -112,24 +120,33 @@ export default function Registrar() {
       .slice(0, 20);
   }, [skus, skuQuery]);
 
-  async function carregarRegistros(termo) {
+  async function carregarRegistros(termo, paginaAlvo = 1) {
     setCarregandoRegistros(true);
+    const de = (paginaAlvo - 1) * REGISTROS_POR_PAGINA;
+    const ate = de + REGISTROS_POR_PAGINA - 1;
     let query = supabase
       .from("app_pp_producoes")
-      .select("*")
+      .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
-      .limit(15);
+      .range(de, ate);
     if (termo && termo.trim()) {
       query = query.or(`colaborador_nome.ilike.%${termo}%,sku_nome.ilike.%${termo}%,sku.ilike.%${termo}%`);
     }
-    const { data: regs } = await query;
+    const { data: regs, count } = await query;
     setRegistros(regs || []);
+    setTotalRegistros(count || 0);
+    setPagina(paginaAlvo);
     setCarregandoRegistros(false);
   }
 
   React.useEffect(() => {
-    carregarRegistros("");
+    carregarRegistros("", 1);
   }, []);
+
+  const totalPaginas = Math.min(
+    MAX_PAGINAS,
+    Math.max(1, Math.ceil(totalRegistros / REGISTROS_POR_PAGINA))
+  );
 
   function fingerprint() {
     const cols = [colaboradorId, emDupla ? colaboradorId2 : ""].filter(Boolean).sort().join("+");
@@ -410,7 +427,7 @@ export default function Registrar() {
               value={buscaRegistros}
               onChange={(e) => {
                 setBuscaRegistros(e.target.value);
-                carregarRegistros(e.target.value);
+                carregarRegistros(e.target.value, 1);
               }}
             />
             <button type="button" className="export-mini-btn" onClick={() => baixarCSV(registros)}>
@@ -420,6 +437,8 @@ export default function Registrar() {
         </div>
         {carregandoRegistros ? (
           <div className="state-msg">Carregando…</div>
+        ) : registros.length === 0 ? (
+          <div className="state-msg">Nenhum registro encontrado.</div>
         ) : (
           <table className="registros-table">
             <thead>
@@ -430,6 +449,7 @@ export default function Registrar() {
                 <th>Qtd.</th>
                 <th>Un. efetivas</th>
                 <th>Origem</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -444,12 +464,49 @@ export default function Registrar() {
                   <td>{r.quantidade}</td>
                   <td>{Math.round(Number(r.unidades_efetivas || 0))}</td>
                   <td>{r.origem}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Editar registro"
+                      aria-label="Editar registro"
+                      onClick={() => setEditando(r)}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+
+        <div className="paginacao">
+          {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={"pagina-btn" + (n === pagina ? " active" : "")}
+              onClick={() => carregarRegistros(buscaRegistros, n)}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {editando && (
+        <EditarRegistroModal
+          registro={editando}
+          colaboradores={colaboradores}
+          skus={skus}
+          onClose={() => setEditando(null)}
+          onSaved={() => {
+            setEditando(null);
+            carregarRegistros(buscaRegistros, pagina);
+          }}
+        />
+      )}
     </div>
   );
 }
