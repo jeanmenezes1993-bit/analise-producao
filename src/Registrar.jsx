@@ -97,14 +97,14 @@ export default function Registrar() {
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState(null);
 
-  const [registros, setRegistros] = useState([]);
+  const [todosRegistros, setTodosRegistros] = useState([]);
   const [buscaRegistros, setBuscaRegistros] = useState("");
   const [carregandoRegistros, setCarregandoRegistros] = useState(true);
   const [pagina, setPagina] = useState(1);
-  const [totalRegistros, setTotalRegistros] = useState(0);
   const [editando, setEditando] = useState(null);
 
   const fingerprintsSessao = useRef(new Set());
+  const requisicaoRegistrosRef = useRef(0);
 
   const numProcessos = Object.values(processos).filter(Boolean).length;
   const tempoMin = tempoMinEntre(horaInicio, horaFim);
@@ -120,32 +120,43 @@ export default function Registrar() {
       .slice(0, 20);
   }, [skus, skuQuery]);
 
+  // Busca de uma vez os registros das 10 páginas (150) e pagina no
+  // navegador: trocar de página não faz nova consulta, então é
+  // instantâneo. Só a tela inicial mostra "Carregando…"; nas buscas
+  // seguintes a tabela antiga continua visível até a nova chegar, e
+  // respostas atrasadas de buscas anteriores são descartadas.
   async function carregarRegistros(termo, paginaAlvo = 1) {
-    setCarregandoRegistros(true);
-    const de = (paginaAlvo - 1) * REGISTROS_POR_PAGINA;
-    const ate = de + REGISTROS_POR_PAGINA - 1;
+    const idRequisicao = ++requisicaoRegistrosRef.current;
     let query = supabase
       .from("app_pp_producoes")
-      .select("*", { count: "exact" })
+      .select("*")
       .order("created_at", { ascending: false })
-      .range(de, ate);
+      .range(0, REGISTROS_POR_PAGINA * MAX_PAGINAS - 1);
     if (termo && termo.trim()) {
       query = query.or(`colaborador_nome.ilike.%${termo}%,sku_nome.ilike.%${termo}%,sku.ilike.%${termo}%`);
     }
-    const { data: regs, count } = await query;
-    setRegistros(regs || []);
-    setTotalRegistros(count || 0);
+    const { data: regs } = await query;
+    if (idRequisicao !== requisicaoRegistrosRef.current) return;
+    setTodosRegistros(regs || []);
     setPagina(paginaAlvo);
     setCarregandoRegistros(false);
   }
 
+  // Carga inicial e busca (com pequena espera enquanto a pessoa digita,
+  // pra não consultar o servidor a cada tecla).
   React.useEffect(() => {
-    carregarRegistros("", 1);
-  }, []);
+    const t = setTimeout(() => carregarRegistros(buscaRegistros, 1), buscaRegistros ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [buscaRegistros]);
 
   const totalPaginas = Math.min(
     MAX_PAGINAS,
-    Math.max(1, Math.ceil(totalRegistros / REGISTROS_POR_PAGINA))
+    Math.max(1, Math.ceil(todosRegistros.length / REGISTROS_POR_PAGINA))
+  );
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const registros = todosRegistros.slice(
+    (paginaAtual - 1) * REGISTROS_POR_PAGINA,
+    paginaAtual * REGISTROS_POR_PAGINA
   );
 
   function fingerprint() {
@@ -425,10 +436,7 @@ export default function Registrar() {
               placeholder="Buscar colaborador ou produto..."
               className="date-input"
               value={buscaRegistros}
-              onChange={(e) => {
-                setBuscaRegistros(e.target.value);
-                carregarRegistros(e.target.value, 1);
-              }}
+              onChange={(e) => setBuscaRegistros(e.target.value)}
             />
             <button type="button" className="export-mini-btn" onClick={() => baixarCSV(registros)}>
               ⬇ Exportar
@@ -486,8 +494,8 @@ export default function Registrar() {
             <button
               key={n}
               type="button"
-              className={"pagina-btn" + (n === pagina ? " active" : "")}
-              onClick={() => carregarRegistros(buscaRegistros, n)}
+              className={"pagina-btn" + (n === paginaAtual ? " active" : "")}
+              onClick={() => setPagina(n)}
             >
               {n}
             </button>
