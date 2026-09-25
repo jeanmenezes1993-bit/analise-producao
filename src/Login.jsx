@@ -1,26 +1,41 @@
 import React, { useState } from "react";
+import { supabase } from "./supabaseClient.js";
 
-// Mesma checagem do sistema anterior: usuário/senha fixos, só no
-// front-end (sem Supabase Auth) — não é uma barreira de segurança de
-// verdade (o RLS do banco já está aberto pra qualquer um com a chave
-// pública), é só o "portão" social que a equipe já está acostumada a
-// usar. As credenciais ficam em variáveis de ambiente (.env, fora do
-// git) em vez de escritas direto no código — veja .env.example.
+// Login real via Supabase Auth. Como o Supabase exige um e-mail (não
+// um "usuário" livre), usamos um e-mail fixo por trás — a pessoa
+// continua digitando "Usuário"/"Senha" como sempre, sem perceber a
+// troca. O campo Usuário só serve de confirmação extra (precisa bater
+// com USUARIO_VALIDO); quem realmente autentica é a senha, validada
+// pelo Supabase — e é isso que trava o RLS do banco pra quem não
+// estiver logado.
 const USUARIO_VALIDO = import.meta.env.VITE_LOGIN_USER || "";
-const SENHA_VALIDA = import.meta.env.VITE_LOGIN_PASS || "";
+const EMAIL_AUTH = import.meta.env.VITE_LOGIN_EMAIL || "";
 
 export default function Login({ onEntrar }) {
   const [usuario, setUsuario] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState(false);
+  const [entrando, setEntrando] = useState(false);
 
-  function tentarEntrar() {
-    if (usuario.trim() === USUARIO_VALIDO && senha === SENHA_VALIDA) {
-      setErro(false);
-      onEntrar();
-    } else {
+  async function tentarEntrar() {
+    if (entrando) return;
+    if (usuario.trim() !== USUARIO_VALIDO) {
       setErro(true);
+      return;
     }
+    setEntrando(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: EMAIL_AUTH,
+      password: senha
+    });
+    setEntrando(false);
+
+    if (error) {
+      setErro(true);
+      return;
+    }
+    setErro(false);
+    onEntrar();
   }
 
   function aoDigitar(setter) {
@@ -65,8 +80,8 @@ export default function Login({ onEntrar }) {
 
           {erro && <div className="login-erro">Usuário ou senha incorretos.</div>}
 
-          <button type="button" className="login-btn" onClick={tentarEntrar}>
-            ENTRAR
+          <button type="button" className="login-btn" onClick={tentarEntrar} disabled={entrando}>
+            {entrando ? "ENTRANDO..." : "ENTRAR"}
           </button>
         </div>
       </div>

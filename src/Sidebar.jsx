@@ -1,5 +1,5 @@
 import React from "react";
-import { LayoutGrid, CirclePlus, Shuffle, Users, Tag, Sun, Moon } from "lucide-react";
+import { LayoutGrid, CirclePlus, Shuffle, Users, Tag, Sun, Moon, LogOut } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "painel", label: "Painel", Icon: LayoutGrid },
@@ -9,7 +9,7 @@ const NAV_ITEMS = [
   { id: "produtos", label: "Produtos", Icon: Tag }
 ];
 
-export default function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
+export default function Sidebar({ page, onNavigate, theme, onToggleTheme, onSair }) {
   return (
     <aside className="sidebar no-print">
       <div className="sidebar-brand">
@@ -32,6 +32,10 @@ export default function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
       <button type="button" className="sidebar-theme-toggle" onClick={onToggleTheme}>
         {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         {theme === "dark" ? "Tema claro" : "Tema escuro"}
+      </button>
+      <button type="button" className="sidebar-theme-toggle" onClick={onSair}>
+        <LogOut size={16} />
+        Sair
       </button>
     </aside>
   );
